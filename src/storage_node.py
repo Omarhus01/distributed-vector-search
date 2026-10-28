@@ -32,11 +32,13 @@ class StorageNode:
             raise ValueError(f"Unknown message type in {msg!r}")
 
     def handle_search(self, msg):
-        shard = self.shards.get(msg["shard"], {})
-        hits = top_k(msg["vector"], shard, msg["k"])
-        self.transport.send(msg["from"], {
-            "type": "results",
-            "query_id": msg["query_id"],
-            "shard": msg["shard"],
-            "hits": hits,
-        })
+        reply = {"type": "results", "query_id": msg["query_id"], "shard": msg["shard"]}
+        if msg["shard"] not in self.shards:
+            # Say so, instead of answering with nothing: an empty answer would hide the mistake.
+            reply["error"] = f"{self.node_id} does not hold {msg['shard']}"
+        else:
+            reply["hits"] = top_k(msg["vector"], self.shards[msg["shard"]], msg["k"])
+        self.transport.send(msg["from"], reply)
+
+    def brief_state(self):
+        return {shard_id: len(songs) for shard_id, songs in self.shards.items()}

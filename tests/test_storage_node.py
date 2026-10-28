@@ -41,3 +41,13 @@ def test_node_answers_ping():
     scheduler.run_until(1000)
 
     assert inbox[0]["type"] == "pong"
+
+def test_node_reports_a_shard_it_does_not_hold():
+    scheduler, network, inbox = make_node()
+    network.endpoint("c1").send("n1", {
+        "type": "search", "query_id": 2, "shard": "S9", "vector": [0.80, 0.70, 0.10], "k": 2,
+    })
+    scheduler.run_until(1000)
+
+    assert inbox[0]["error"] == "n1 does not hold S9"
+    assert "hits" not in inbox[0]
