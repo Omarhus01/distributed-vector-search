@@ -1,0 +1,5 @@
+dslabs @ git+https://github.com/cscheffler/dslabs
+numpy
+pandas
+matplotlib
+jupyter
