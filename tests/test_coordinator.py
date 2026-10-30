@@ -4,24 +4,28 @@ from src.coordinator import Coordinator, shard_for
 from src.storage_node import StorageNode
 
 QUERY = [0.80, 0.70, 0.10]  # Night Drive
+S1_SONGS = {"Neon Run": [0.85, 0.75, 0.05], "Rainy Porch": [0.20, 0.30, 0.90]}
+S2_SONGS = {"City Lights": [0.70, 0.60, 0.20], "Sunday Coffee": [0.30, 0.40, 0.80]}
 
 
-def make_cluster(n2_answers=True, shard_map=None):
+def make_cluster(n2_answers=True, shard_map=None, n1_holds_s2_copy=False):
     scheduler = SimScheduler()
     network = SimNetwork(scheduler, seed=1)
     ids = ["c1", "n1", "n2"]
 
-    shard_map = shard_map or {"S1": "n1", "S2": "n2"}
+    shard_map = shard_map or {"S1": ["n1"], "S2": ["n2"]}
     coordinator = Coordinator("c1", ids, network.endpoint("c1"), scheduler, shard_map=shard_map)
     network.register("c1", coordinator.on_message)
 
     n1 = StorageNode("n1", ids, network.endpoint("n1"), scheduler)
-    n1.load_shard("S1", {"Neon Run": [0.85, 0.75, 0.05], "Rainy Porch": [0.20, 0.30, 0.90]})
+    n1.load_shard("S1", S1_SONGS)
+    if n1_holds_s2_copy:
+        n1.load_shard("S2", S2_SONGS)
     network.register("n1", n1.on_message)
 
     if n2_answers:
         n2 = StorageNode("n2", ids, network.endpoint("n2"), scheduler)
-        n2.load_shard("S2", {"City Lights": [0.70, 0.60, 0.20], "Sunday Coffee": [0.30, 0.40, 0.80]})
+        n2.load_shard("S2", S2_SONGS)
         network.register("n2", n2.on_message)
     else:
         network.register("n2", lambda msg: None)  # a node that receives but never answers
@@ -56,7 +60,7 @@ def test_returns_partial_results_when_a_shard_never_answers():
 
 def test_reports_a_shard_sent_to_the_wrong_node():
     # Wiring mistake: S2 is sent to n1, which only holds S1.
-    scheduler, coordinator = make_cluster(shard_map={"S1": "n1", "S2": "n1"})
+    scheduler, coordinator = make_cluster(shard_map={"S1": ["n1"], "S2": ["n1"]})
     query_id = coordinator.search(QUERY, 2)
     scheduler.run_until(2000)
 
@@ -99,3 +103,18 @@ def test_brief_state_shows_node_status():
     scheduler.run_until(2200)
 
     assert coordinator.brief_state()["nodes"] == {"n1": "alive", "n2": "dead"}
+
+def test_replica_answers_when_primary_is_dead():
+    # S2 lives on n2 (primary) and n1 (replica). n2 never answers.
+    scheduler, coordinator = make_cluster(
+        n2_answers=False, shard_map={"S1": ["n1"], "S2": ["n2", "n1"]}, n1_holds_s2_copy=True,
+    )
+    coordinator.start()
+    scheduler.run_until(2200)  # n2 is dead by now
+
+    query_id = coordinator.search(QUERY, 2)
+    scheduler.run_until(2500)
+
+    answer = coordinator.finished[query_id]
+    assert hit_ids(answer) == ["Neon Run", "City Lights"]  # City Lights came from the replica
+    assert answer["missing_shards"] == []

@@ -12,7 +12,12 @@ from src.metrics import recall_at_k
 
 K = 5
 GAP_MS = 300
-CRASHED_NODE = "n2"
+SCENARIOS = [  # (replication factor, nodes to crash)
+    (1, ["n2"]),
+    (2, ["n2"]),
+    (2, ["n2", "n3"]),
+    (3, ["n2", "n3"]),
+]
 RESULTS_DIR = Path("results")
 
 
@@ -34,28 +39,36 @@ def run_phase(cluster, queries):
     return sum(recalls) / len(recalls)
 
 
+def run_scenario(songs, queries, replication_factor, crashed_nodes):
+    """Crash the given nodes mid-run, return recall before, during, and after. Saves the viewer."""
+    cluster = build_cluster(songs, replication_factor=replication_factor)
+    before = run_phase(cluster, queries)
+
+    for node_id in crashed_nodes:
+        crash(cluster, node_id)
+    during = run_phase(cluster, queries)
+
+    for node_id in crashed_nodes:
+        recover(cluster, node_id)
+    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1000)  # one heartbeat to notice they're back
+    after = run_phase(cluster, queries)
+
+    name = f"crash_rf{replication_factor}_{'_'.join(crashed_nodes)}"
+    RESULTS_DIR.mkdir(exist_ok=True)
+    cluster.scheduler.trace.save_viewer(RESULTS_DIR / f"{name}.html")
+    return before, during, after
+
+
 def main():
     songs = json.loads(Path("data/songs.json").read_text())
     queries = json.loads(Path("data/queries.json").read_text())
-    cluster = build_cluster(songs)
 
-    before = run_phase(cluster, queries)
-
-    crash(cluster, CRASHED_NODE)
-    during = run_phase(cluster, queries)
-
-    recover(cluster, CRASHED_NODE)
-    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1000)  # one heartbeat to notice it's back
-    after = run_phase(cluster, queries)
-
-    print(f"recall@{K} before crash:       {before:.2f}")
-    print(f"recall@{K} with {CRASHED_NODE} crashed:  {during:.2f}")
-    print(f"recall@{K} after recovery:     {after:.2f}")
-    print("node status at the end:", cluster.coordinator.status)
-
-    RESULTS_DIR.mkdir(exist_ok=True)
-    viewer = cluster.scheduler.trace.save_viewer(RESULTS_DIR / "crash_n2.html")
-    print(f"viewer saved to {viewer}")
+    print(f"{'copies':<8}{'crashed':<10}{'before':>8}{'during':>8}{'after':>8}")
+    for replication_factor, crashed_nodes in SCENARIOS:
+        before, during, after = run_scenario(songs, queries, replication_factor, crashed_nodes)
+        print(f"{'RF=' + str(replication_factor):<8}{'+'.join(crashed_nodes):<10}"
+              f"{before:>8.2f}{during:>8.2f}{after:>8.2f}")
+    print(f"viewers saved in {RESULTS_DIR}/")
 
 
 if __name__ == "__main__":

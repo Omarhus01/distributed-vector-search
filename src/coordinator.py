@@ -17,7 +17,7 @@ class Coordinator:
     peers: list[str]
     transport: Transport
     scheduler: Scheduler
-    shard_map: dict[str, str] = field(default_factory=dict)  # shard -> node that holds it
+    shard_map: dict[str, list[str]] = field(default_factory=dict)  # shard -> nodes holding it, primary first
     query_timeout_ms: int = 1000
     pending: dict[int, dict] = field(default_factory=dict)   # query_id -> query still waiting
     finished: dict[int, dict] = field(default_factory=dict)  # query_id -> final answer
@@ -33,18 +33,21 @@ class Coordinator:
         query_id = self.next_query_id
         self.next_query_id += 1
 
-        # Don't ask nodes already known to be dead; suspected ones are still asked.
-        live = {shard: node for shard, node in self.shard_map.items()
-                if self.status.get(node, "alive") != "dead"}
-        skipped = sorted(set(self.shard_map) - set(live))
-        self.pending[query_id] = {"k": k, "waiting_for": set(live), "skipped": skipped,
-                                "hits": [], "errors": {}}
+        # For each shard, pick one copy to ask: an alive one first, else a suspected one.
+        chosen = {}
+        for shard, nodes in self.shard_map.items():
+            node = self.pick_node(nodes)
+            if node is not None:
+                chosen[shard] = node
+        skipped = sorted(set(self.shard_map) - set(chosen))
+        self.pending[query_id] = {"k": k, "waiting_for": set(chosen), "skipped": skipped,
+                                  "hits": [], "errors": {}}
 
-        if not live:
-            self.finish(query_id)  # nobody to ask
+        if not chosen:
+            self.finish(query_id)  # every copy of every shard is dead
             return query_id
 
-        for shard, node in live.items():
+        for shard, node in chosen.items():
             self.transport.send(node, {
                 "type": "search", "query_id": query_id, "shard": shard, "vector": vector, "k": k,
             })
@@ -54,6 +57,14 @@ class Coordinator:
 
         self.pending[query_id]["cancel_timeout"] = self.scheduler.call_later(self.query_timeout_ms, timeout)
         return query_id
+
+    def pick_node(self, nodes):
+        """The first alive copy; if none is alive, the first suspected one; if all are dead, None."""
+        for wanted in ("alive", "suspected"):
+            for node in nodes:
+                if self.status.get(node, "alive") == wanted:
+                    return node
+        return None
 
     def on_message(self, msg: Message) -> None:
         if msg["type"] == "results":
@@ -93,7 +104,7 @@ class Coordinator:
 
     def start(self):
         """Begin heartbeats. Every node counts as alive at the start."""
-        for node in set(self.shard_map.values()):
+        for node in {node for nodes in self.shard_map.values() for node in nodes}:
             self.last_heard[node] = self.scheduler.now_ms()
             self.status[node] = "alive"
         self.heartbeat()
