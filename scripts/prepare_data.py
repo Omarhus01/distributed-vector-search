@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.vectors import top_k
+from src.similarity import top_k
 
 RAW_CSV = Path("data/raw/dataset.csv")
 SONGS_OUT = Path("data/songs.json")

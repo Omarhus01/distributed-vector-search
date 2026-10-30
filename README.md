@@ -70,7 +70,7 @@ Open `results/crash_n2.html` to watch it: dropped messages end in a red cross, a
 | `scripts/prepare_data.py` | Raw CSV to song vectors, test queries, and ground truth |
 | `scripts/run_queries.py` | Runs the test queries through the cluster and measures recall |
 | `scripts/run_crash.py` | Crashes n2 mid-run and measures recall before, during, and after |
-| `src/vectors.py` | Distance and brute-force top-k, used by everything that ranks songs |
+| `src/similarity.py` | Distance and brute-force top-k, used by everything that ranks songs |
 | `src/storage_node.py` | `StorageNode`: holds shards, answers searches with its local top-k |
 | `src/coordinator.py` | `Coordinator`: sends a query to every shard, merges the replies, times out on silent shards, tracks which nodes are alive with heartbeats |
 | `src/cluster_setup.py` | Builds the cluster and splits the songs into shards |

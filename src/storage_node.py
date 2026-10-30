@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from dslabs.protocols import Message, Scheduler, Transport
 
-from src.vectors import top_k
+from src.similarity import top_k
 
 
 @dataclass

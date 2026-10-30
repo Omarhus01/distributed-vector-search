@@ -2,10 +2,11 @@ import json
 
 import numpy as np
 
-from src.vectors import euclidean, top_k
+from src.similarity import euclidean, top_k
 
 
 def test_distance_matches_hand_calculation():
+    # all of these are just made up songs and numbers
     # Night Drive vs Neon Run: differences 0.05, 0.05, -0.05
     # 0.0025 + 0.0025 + 0.0025 = 0.0075, sqrt = 0.0866
     assert round(euclidean([0.80, 0.70, 0.10], [0.85, 0.75, 0.05]), 4) == 0.0866
