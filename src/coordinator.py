@@ -88,8 +88,8 @@ class Coordinator:
             "errors": query["errors"],
         }
 
-        def brief_state(self):
-            return {"nodes": dict(self.status), "waiting": len(self.pending), "done": len(self.finished)}
+    def brief_state(self):
+        return {"nodes": dict(self.status), "waiting": len(self.pending), "done": len(self.finished)}
 
     def start(self):
         """Begin heartbeats. Every node counts as alive at the start."""

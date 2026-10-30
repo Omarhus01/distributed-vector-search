@@ -92,3 +92,10 @@ def test_dead_node_is_skipped_without_waiting():
     answer = coordinator.finished[query_id]
     assert answer["missing_shards"] == ["S2"]
     assert hit_ids(answer) == ["Neon Run", "Rainy Porch"]
+
+def test_brief_state_shows_node_status():
+    scheduler, coordinator = make_cluster(n2_answers=False)
+    coordinator.start()
+    scheduler.run_until(2200)
+
+    assert coordinator.brief_state()["nodes"] == {"n1": "alive", "n2": "dead"}
