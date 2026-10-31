@@ -53,7 +53,7 @@ def run_scenario(songs, queries, replication_factor, crashed_nodes):
     cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1000)  # one heartbeat to notice they're back
     after = run_phase(cluster, queries)
 
-    name = f"crash_rf{replication_factor}_{'_'.join(crashed_nodes)}"
+    name = f"crash_{replication_factor}_copies_{'_'.join(crashed_nodes)}_down"
     RESULTS_DIR.mkdir(exist_ok=True)
     cluster.scheduler.trace.save_viewer(RESULTS_DIR / f"{name}.html")
     return before, during, after
