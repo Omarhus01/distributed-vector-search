@@ -9,11 +9,12 @@ from src.cluster_setup import build_cluster
 from src.metrics import recall_at_k
 
 K = 5
-GAP_MS = 300  # time between queries, so the viewer shows them one at a time
+GAP_MS = 300  # time between queries
 RESULTS_DIR = Path("results")
 
 
 def main():
+    """Run every query, print recall@K and save the viewer to results/first_run.html."""
     songs = json.loads(Path("data/songs.json").read_text())
     queries = json.loads(Path("data/queries.json").read_text())
     cluster = build_cluster(songs)
@@ -24,7 +25,7 @@ def main():
         cluster.scheduler.trace.client("c1", f"search: {query['name']}")
         query_ids.append(cluster.coordinator.search(query["vector"], K))
         cluster.scheduler.run_until((i + 1) * GAP_MS)
-    cluster.scheduler.run_until(len(queries) * GAP_MS + 2000)  # let the last replies arrive
+    cluster.scheduler.run_until(len(queries) * GAP_MS + 2000)  # wait for the last replies
 
     recalls = []
     for query, query_id in zip(queries, query_ids):

@@ -1,3 +1,4 @@
+"""Coordinator: sends queries to shards, merges the replies, tracks node health."""
 import zlib
 from dataclasses import dataclass, field
 
@@ -5,13 +6,24 @@ from dslabs.protocols import Message, Scheduler, Transport
 
 
 def shard_for(song_id, num_shards):
-    """Which shard a song lives on. crc32 gives the same number on every run and every machine."""
+    """Return the id of the shard that holds a song, such as "S2".
+
+    Uses crc32 instead of hash() because hash() gives a different result on
+    each run of Python.
+    """
     return f"S{zlib.crc32(song_id.encode()) % num_shards + 1}"
 
 
 @dataclass
 class Coordinator:
-    """Sends each query to every shard, merges the replies into one top-k."""
+    """Receives queries, sends each one to the shards and merges the replies.
+
+    Each shard can be stored on several nodes (shard_map, primary first). For
+    each query the coordinator asks one node per shard. It pings all nodes on
+    a timer and marks each node alive, suspected or dead by how long the node
+    has been silent. A query ends when every shard answered or after
+    query_timeout_ms.
+    """
 
     node_id: str
     peers: list[str]
@@ -29,11 +41,19 @@ class Coordinator:
     status: dict[str, str] = field(default_factory=dict)      # node -> alive / suspected / dead
 
     def search(self, vector, k):
-        """Start a query. The answer appears in self.finished[query_id]."""
+        """Start a query and return its query id.
+
+        Sends the search to one node per shard. The answer appears in
+        self.finished[query_id] when all shards reply or the timeout passes.
+
+        Args:
+            vector: the query vector.
+            k: number of songs to return.
+        """
         query_id = self.next_query_id
         self.next_query_id += 1
 
-        # For each shard, pick one copy to ask: an alive one first, else a suspected one.
+        # one node per shard: alive first, else suspected
         chosen = {}
         for shard, nodes in self.shard_map.items():
             node = self.pick_node(nodes)
@@ -44,7 +64,7 @@ class Coordinator:
                                   "hits": [], "errors": {}}
 
         if not chosen:
-            self.finish(query_id)  # every copy of every shard is dead
+            self.finish(query_id)  # no node to ask for any shard
             return query_id
 
         for shard, node in chosen.items():
@@ -59,7 +79,15 @@ class Coordinator:
         return query_id
 
     def pick_node(self, nodes):
-        """The first alive copy; if none is alive, the first suspected one; if all are dead, None."""
+        """Return the node to ask for a shard.
+
+        Args:
+            nodes: nodes that hold the shard, primary first.
+
+        Returns:
+            The first alive node. If none is alive, the first suspected node.
+            If all are dead, None.
+        """
         for wanted in ("alive", "suspected"):
             for node in nodes:
                 if self.status.get(node, "alive") == wanted:
@@ -67,6 +95,7 @@ class Coordinator:
         return None
 
     def on_message(self, msg: Message) -> None:
+        """Handle a results or pong message. Raises ValueError for other types."""
         if msg["type"] == "results":
             self.handle_results(msg)
         elif msg["type"] == "pong":
@@ -76,9 +105,14 @@ class Coordinator:
             raise ValueError(f"Unknown message type in {msg!r}")
 
     def handle_results(self, msg):
+        """Add one shard's reply to its query.
+
+        Finishes the query when every shard has replied. Ignores replies for
+        queries that finished.
+        """
         query = self.pending.get(msg["query_id"])
         if query is None:
-            return  # reply came after the timeout; the query is already finished
+            return  # late reply; the query is finished
         query["waiting_for"].discard(msg["shard"])
         if "error" in msg:
             query["errors"][msg["shard"]] = msg["error"]
@@ -89,6 +123,13 @@ class Coordinator:
             self.finish(msg["query_id"])
 
     def finish(self, query_id):
+        """End a query and store its answer in self.finished.
+
+        The answer is a dict with:
+            hits: top k songs from the replies, as [song_id, distance].
+            missing_shards: shards with no reply or no node to ask.
+            errors: {shard: error text} from nodes that replied with an error.
+        """
         query = self.pending.pop(query_id, None)
         if query is None:
             return
@@ -100,22 +141,29 @@ class Coordinator:
         }
 
     def brief_state(self):
+        """Return node status and query counts for the viewer."""
         return {"nodes": dict(self.status), "waiting": len(self.pending), "done": len(self.finished)}
 
     def start(self):
-        """Begin heartbeats. Every node counts as alive at the start."""
+        """Mark every node alive and start the heartbeat."""
         for node in {node for nodes in self.shard_map.values() for node in nodes}:
             self.last_heard[node] = self.scheduler.now_ms()
             self.status[node] = "alive"
         self.heartbeat()
 
     def heartbeat(self):
+        """Ping every node, update node status and schedule the next heartbeat."""
         for node in self.last_heard:
             self.transport.send(node, {"type": "ping"})
         self.check_nodes()
         self.scheduler.call_later(self.heartbeat_ms, self.heartbeat)
 
     def check_nodes(self):
+        """Update each node's status from the time since its last pong.
+
+        Silent for suspect_after_ms: suspected. Silent for dead_after_ms: dead.
+        Otherwise alive. Each change is logged.
+        """
         now = self.scheduler.now_ms()
         for node, heard in self.last_heard.items():
             silent = now - heard

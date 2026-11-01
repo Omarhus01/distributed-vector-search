@@ -14,7 +14,7 @@ def make_node():
     scheduler = SimScheduler()
     network = SimNetwork(scheduler, seed=1)
     inbox = []
-    network.register("c1", inbox.append)  # fake coordinator: keeps every message it gets
+    network.register("c1", inbox.append)  # fake coordinator: stores messages
     node = StorageNode("n1", ["c1", "n1"], network.endpoint("n1"), scheduler)
     network.register("n1", node.on_message)
     node.load_shard("S1", SONGS)

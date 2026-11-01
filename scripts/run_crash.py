@@ -1,6 +1,9 @@
-"""Crash a storage node in the middle of a run and measure what it costs.
+"""Crash storage nodes in the middle of a run and measure recall.
 
-Phase 1: all nodes up. Phase 2: n2 crashed. Phase 3: n2 recovered.
+Each scenario has three phases: all nodes up, chosen nodes crashed, chosen
+nodes recovered. Prints recall for each phase and saves a viewer file in
+results/.
+
 Run from the repo root:  python -m scripts.run_crash
 """
 import json
@@ -22,14 +25,25 @@ RESULTS_DIR = Path("results")
 
 
 def run_phase(cluster, queries):
-    """Send every query, one every GAP_MS, wait for the answers, return the average recall."""
+    """Send every query to the cluster and return the average recall.
+
+    Queries are sent GAP_MS apart. After the last query the cluster runs
+    1500 ms more so late answers arrive.
+
+    Args:
+        cluster: the SimCluster.
+        queries: list of dicts with "vector", "name" and "true_top_k".
+
+    Returns:
+        Average recall at K over all queries.
+    """
     start = cluster.scheduler.now_ms()
     asked = []
     for i, query in enumerate(queries):
         cluster.scheduler.trace.client("c1", f"search: {query['name']}")
         asked.append((query, cluster.coordinator.search(query["vector"], K)))
         cluster.scheduler.run_until(start + (i + 1) * GAP_MS)
-    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1500)  # let the last answers arrive
+    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1500)  # wait for the last answers
 
     recalls = []
     for query, query_id in asked:
@@ -40,7 +54,17 @@ def run_phase(cluster, queries):
 
 
 def run_scenario(songs, queries, replication_factor, crashed_nodes):
-    """Crash the given nodes mid-run, return recall before, during, and after. Saves the viewer."""
+    """Run the three phases for one scenario.
+
+    Args:
+        songs: list of song dicts.
+        queries: list of query dicts.
+        replication_factor: copies of each shard.
+        crashed_nodes: ids of the nodes to crash in phase 2.
+
+    Returns:
+        Tuple (before, during, after) of average recall. Saves the viewer file.
+    """
     cluster = build_cluster(songs, replication_factor=replication_factor)
     before = run_phase(cluster, queries)
 
@@ -50,7 +74,7 @@ def run_scenario(songs, queries, replication_factor, crashed_nodes):
 
     for node_id in crashed_nodes:
         recover(cluster, node_id)
-    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1000)  # one heartbeat to notice they're back
+    cluster.scheduler.run_until(cluster.scheduler.now_ms() + 1000)  # wait one heartbeat for the coordinator to see them
     after = run_phase(cluster, queries)
 
     name = f"crash_{replication_factor}_copies_{'_'.join(crashed_nodes)}_down"
@@ -60,6 +84,7 @@ def run_scenario(songs, queries, replication_factor, crashed_nodes):
 
 
 def main():
+    """Run every scenario in SCENARIOS and print recall for each phase."""
     songs = json.loads(Path("data/songs.json").read_text())
     queries = json.loads(Path("data/queries.json").read_text())
 

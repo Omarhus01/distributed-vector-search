@@ -1,4 +1,7 @@
-"""Build the simulated cluster: one coordinator and three storage nodes."""
+"""Build the simulated cluster: one coordinator and three storage nodes.
+
+Each shard is stored on replication_factor nodes.
+"""
 from dataclasses import dataclass, field
 
 from dslabs import SimNetwork, SimScheduler
@@ -11,10 +14,20 @@ SHARDS = ["S1", "S2", "S3"]  # shard i's primary is STORAGE_NODES[i]
 
 
 def placement(replication_factor):
-    """shard -> the nodes that hold it, primary first.
+    """Return which nodes hold each shard, primary first.
 
-    Each copy goes to the node before it in the list, wrapping around (Figure 2 in my proposal).
-    replication_factor 2: S1 -> [n1, n3], S2 -> [n2, n1], S3 -> [n3, n2].
+    The primary of shard i is STORAGE_NODES[i]. Each further copy goes to the
+    node before it in the list, wrapping around. With replication_factor 2:
+    S1 -> [n1, n3], S2 -> [n2, n1], S3 -> [n3, n2].
+
+    Args:
+        replication_factor: copies of each shard, from 1 to the node count.
+
+    Returns:
+        Dict of {shard: [node, ...]}.
+
+    Raises:
+        ValueError: if replication_factor is out of range.
     """
     if not 1 <= replication_factor <= len(STORAGE_NODES):
         raise ValueError(f"replication_factor must be between 1 and {len(STORAGE_NODES)}")
@@ -24,6 +37,8 @@ def placement(replication_factor):
 
 @dataclass
 class SimCluster:
+    """Everything one simulation run needs: scheduler, network, coordinator and nodes."""
+
     scheduler: SimScheduler
     network: SimNetwork
     coordinator: Coordinator
@@ -32,7 +47,14 @@ class SimCluster:
 
 
 def split_into_shards(songs):
-    """Put each song in the shard its id hashes to."""
+    """Group songs by the shard their id maps to.
+
+    Args:
+        songs: list of dicts with "id" and "vector".
+
+    Returns:
+        Dict of {shard: {song_id: vector}}.
+    """
     shards = {shard: {} for shard in SHARDS}
     for song in songs:
         shards[shard_for(song["id"], len(SHARDS))][song["id"]] = song["vector"]
@@ -40,6 +62,19 @@ def split_into_shards(songs):
 
 
 def build_cluster(songs, seed=1, replication_factor=2):
+    """Create the network, the storage nodes and the coordinator.
+
+    Each shard is loaded on every node that placement assigns to it. The
+    coordinator starts its heartbeat.
+
+    Args:
+        songs: list of dicts with "id" and "vector".
+        seed: seed for the simulated network.
+        replication_factor: copies of each shard.
+
+    Returns:
+        A SimCluster.
+    """
     scheduler = SimScheduler()
     network = SimNetwork(scheduler, seed=seed)
     all_ids = ["c1"] + STORAGE_NODES
@@ -53,7 +88,7 @@ def build_cluster(songs, seed=1, replication_factor=2):
 
     coordinator = Coordinator("c1", all_ids, network.endpoint("c1"), scheduler, shard_map=shard_map)
 
-    # Register after loading, so the viewer's first snapshot already shows the shard sizes.
+    # register after loading so the first viewer snapshot shows shard sizes
     for node_id, node in nodes.items():
         network.register(node_id, node.on_message)
     network.register("c1", coordinator.on_message)

@@ -6,7 +6,7 @@ from src.similarity import euclidean, top_k
 
 
 def test_distance_matches_hand_calculation():
-    # all of these are just made up songs and numbers
+    # made-up songs and numbers
     # Night Drive vs Neon Run: differences 0.05, 0.05, -0.05
     # 0.0025 + 0.0025 + 0.0025 = 0.0075, sqrt = 0.0866
     assert round(euclidean([0.80, 0.70, 0.10], [0.85, 0.75, 0.05]), 4) == 0.0866
@@ -24,15 +24,14 @@ def test_top_k_returns_closest_first():
 
 
 def test_ties_are_broken_by_song_id():
-    # Two songs at the same distance: the smaller id comes first, every time.
+    # same distance: the smaller id comes first
     songs = {"b": [1.0, 0.0], "a": [0.0, 1.0]}
     result = top_k([0.0, 0.0], songs, 2)
     assert [song_id for song_id, _ in result] == ["a", "b"]
 
 
 def test_ground_truth_matches_independent_numpy_version():
-    # A second, separate way to compute the top-5. If top_k had a bug,
-    # the ground truth would carry it too; numpy would not.
+    # Compute the top 5 with numpy. A bug in top_k would also affect the ground truth.
     songs = json.load(open("data/songs.json"))
     queries = json.load(open("data/queries.json"))
     ids = np.array([song["id"] for song in songs])

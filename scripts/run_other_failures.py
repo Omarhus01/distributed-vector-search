@@ -1,6 +1,9 @@
-"""Failures that aren't crashes: one slow node, and a network that loses messages.
+"""Run failures that are not crashes: a slow node and a lossy network.
 
-Each run: all nodes fine, then the failure, then fixed. Uses 2 copies of each shard.
+Each run has three phases: no failure, the failure, the failure removed. Each
+shard has 2 copies. Prints recall for each phase and saves a viewer file in
+results/.
+
 Run from the repo root:  python -m scripts.run_other_failures
 """
 import json
@@ -17,6 +20,18 @@ SCENARIOS = [  # (name, how to cause the failure)
 
 
 def run_scenario(songs, queries, name, cause_failure):
+    """Run the three phases for one failure.
+
+    Args:
+        songs: list of song dicts.
+        queries: list of query dicts.
+        name: scenario name, used for the viewer file name.
+        cause_failure: function that takes the cluster, starts the failure
+            and returns its rule.
+
+    Returns:
+        Tuple (before, during, after) of average recall. Saves the viewer file.
+    """
     cluster = build_cluster(songs)
     before = run_phase(cluster, queries)
 
@@ -33,6 +48,7 @@ def run_scenario(songs, queries, name, cause_failure):
 
 
 def main():
+    """Run every scenario in SCENARIOS and print recall for each phase."""
     songs = json.loads(Path("data/songs.json").read_text())
     queries = json.loads(Path("data/queries.json").read_text())
 

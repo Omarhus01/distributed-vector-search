@@ -59,7 +59,7 @@ def test_returns_partial_results_when_a_shard_never_answers():
 
 
 def test_reports_a_shard_sent_to_the_wrong_node():
-    # Wiring mistake: S2 is sent to n1, which only holds S1.
+    # S2 is sent to n1, which does not hold it
     scheduler, coordinator = make_cluster(shard_map={"S1": ["n1"], "S2": ["n1"]})
     query_id = coordinator.search(QUERY, 2)
     scheduler.run_until(2000)
@@ -70,7 +70,7 @@ def test_reports_a_shard_sent_to_the_wrong_node():
 
 
 def test_shard_for_is_the_same_every_time():
-    # Fixed number, not Python's hash(), which changes every time Python starts.
+    # hash() changes between runs
     assert shard_for("4qPNDBW1i3p13qLCt0Ki3A", 3) == shard_for("4qPNDBW1i3p13qLCt0Ki3A", 3)
     assert shard_for("4qPNDBW1i3p13qLCt0Ki3A", 3) in {"S1", "S2", "S3"}
 
@@ -91,7 +91,7 @@ def test_dead_node_is_skipped_without_waiting():
     scheduler.run_until(2200)  # n2 is dead by now
 
     query_id = coordinator.search(QUERY, 2)
-    scheduler.run_until(2500)  # only 300 ms later, well before the 1 s timeout
+    scheduler.run_until(2500)  # 300 ms later, before the 1 s timeout
 
     answer = coordinator.finished[query_id]
     assert answer["missing_shards"] == ["S2"]
