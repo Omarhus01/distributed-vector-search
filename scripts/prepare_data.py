@@ -3,6 +3,7 @@
 Input:  data/raw/dataset.csv   (Spotify Tracks Dataset by maharshipandya, Hugging Face)
 Output: data/songs.json        the songs that go into the cluster
         data/queries.json      test songs (not in the cluster) + their true top-k
+        data/uploads.json      songs held back from the cluster, uploaded while it runs
 
 Run from the repo root:  python -m scripts.prepare_data
 """
@@ -17,10 +18,12 @@ from src.similarity import top_k
 RAW_CSV = Path("data/raw/dataset.csv")
 SONGS_OUT = Path("data/songs.json")
 QUERIES_OUT = Path("data/queries.json")
+UPLOADS_OUT = Path("data/uploads.json")
 
 FEATURES = ["danceability", "energy", "acousticness", "valence", "tempo"]
 N_SONGS = 1000      # songs in the cluster
 N_QUERIES = 20      # test songs, not in the cluster
+N_UPLOADS = 200     # songs kept out of the cluster at the start, added by uploaders later
 K = 5
 SEED = 42           # fixed sample
 
@@ -68,6 +71,9 @@ def main():
     picked = tracks.sample(n=N_SONGS + N_QUERIES, random_state=SEED)
     songs = [to_record(track) for _, track in picked.iloc[:N_SONGS].iterrows()]
     queries = [to_record(track) for _, track in picked.iloc[N_SONGS:].iterrows()]
+    # Uploads come from the songs not picked above, so they are not in the cluster or the queries.
+    rest = tracks.drop(picked.index)
+    uploads = [to_record(track) for _, track in rest.sample(n=N_UPLOADS, random_state=SEED).iterrows()]
 
     # ground truth: brute force on one machine
     all_vectors = {song["id"]: song["vector"] for song in songs}
@@ -76,8 +82,10 @@ def main():
 
     SONGS_OUT.write_text(json.dumps(songs, indent=1))
     QUERIES_OUT.write_text(json.dumps(queries, indent=1))
+    UPLOADS_OUT.write_text(json.dumps(uploads, indent=1))
     print(f"wrote {len(songs)} songs to {SONGS_OUT}")
     print(f"wrote {len(queries)} queries with true top-{K} to {QUERIES_OUT}")
+    print(f"wrote {len(uploads)} songs to upload to {UPLOADS_OUT}")
 
     # example to check by hand
     query = queries[0]
